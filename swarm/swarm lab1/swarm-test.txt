@@ -1,0 +1,140 @@
+#!/bin/bash
+
+# Swarm mode using Docker Machine
+
+#This configures the number of workers and managers in the swarm
+managers=3
+workers=3
+
+
+
+# This first step creates three machines, and names the machines manager1, manager2, and manager3
+
+# This creates the manager machines
+echo "======> Creating $managers manager machines ...";
+for node in $(seq 1 $managers);
+do
+        echo "======> Creating manager$node machine ...";
+        docker-machine create -d virtualbox manager$node;
+done
+
+
+
+# This second step creates three more machines, and names them worker1, worker2, and worker3
+
+# This create worker machines
+echo "======> Creating $workers worker machines ...";
+for node in $(seq 1 $workers);
+do
+        echo "======> Creating worker$node machine ...";
+        docker-machine create -d virtualbox worker$node;
+done
+
+# This lists all machines created
+docker-machine ls
+
+
+
+# Next you create a swarm by initializing it on the first manager. 
+# You do this by using docker-machine ssh to run docker swarm init
+
+# initialize swarm mode and create a manager
+echo "======> Initializing first swarm manager ..."
+docker-machine ssh manager1 "docker swarm init --listen-addr $(docker-machine ip manager1) --advertise-addr $(docker-machine ip manager1)"
+
+
+
+# Next you get join tokens for managers and workers.
+
+# get manager and worker tokens
+export manager_token=`docker-machine ssh manager1 "docker swarm join-token manager -q"`
+export worker_token=`docker-machine ssh manager1 "docker swarm join-token worker -q"`
+
+
+
+# Then join the other masters to the Swarm
+
+for node in $(seq 2 $managers);
+do
+        echo "======> manager$node joining swarm as manager ..."
+        docker-machine ssh manager$node \
+                "docker swarm join \
+                --token $manager_token \
+                --listen-addr $(docker-machine ip manager$node) \
+                --advertise-addr $(docker-machine ip manager$node) \
+                $(docker-machine ip manager1)"
+done
+
+
+
+# Finally, add the worker machines and join them to the swarm.
+
+# workers join swarm
+for node in $(seq 1 $workers);
+do
+        echo "======> worker$node joining swarm as worker ..."
+        docker-machine ssh worker$node \
+        "docker swarm join \
+        --token $worker_token \
+        --listen-addr $(docker-machine ip worker$node) \
+        --advertise-addr $(docker-machine ip worker$node) \
+        $(docker-machine ip manager1):2377"
+done
+
+# show members of swarm
+docker-machine ssh manager1 "docker node ls"
+
+
+
+
+
+
+$ docker-machine ls
+$ docker-machine ssh manager1 "docker service create -p 80:80 --name web nginx:latest"
+$ docker-machine ssh manager1 "docker service ls"
+
+
+http://192.168.99.100
+http://192.168.99.101
+http://192.168.99.102
+Docker Engine swarm 모드를 사용하면 서비스 포트를 게시하여 swarm 외부 리소스에 쉽게 사용할 수 있습니다. 
+모든 노드는 수신 라우팅 메쉬(ingress routing mesh)에 참여합니다. 
+Routing Mesh를 사용하면 노드에서 실행중인 작업이 없더라도 swarm에있는 모든 노드가 swarm에서 실행중인 모든 서비스에 대해 게시 된 포트에서 연결을 허용 할 수 있습니다. 
+Routing Mesh는 들어오는 모든 요청을 사용 가능한 노드의 게시 된 포트로 활성 컨테이너로 라우팅합니다.
+
+이를 위해서는 
+컨테이너 네트워크 검색을 위한 TCP/UDP 7946과 
+컨테이너 수신 네트워크용 UDB 4789 포트가 개방되어 있어야 합니다.
+
+
+
+
+
+
+$ docker-machine ssh manager1 "docker service scale web=15"
+
+$ docker-machine ssh manager1 "docker service ls"
+
+$ docker-machine ssh manager1 "docker service ps web"
+
+$ docker-machine ssh manager1 "docker node update --availability drain worker1"
+
+$ docker-machine ssh manager1 "docker service ps web"
+
+$ docker-machine ssh manager1 "docker node ls"
+
+$ docker-machine ssh manager1 "docker service scale web=10"
+
+$ docker-machine ssh manager1 "docker service ps web"
+
+$ docker-machine ssh manager1 "docker node update --availability active worker1"
+
+$ docker-machine ssh manager1 "docker swarm leave --force"
+
+$ docker-machine ssh manager2 "docker node ls"
+
+$ docker-machine ssh manager2 "docker service rm web"
+
+
+
+
